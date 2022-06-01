@@ -10,7 +10,7 @@
 #include <arpa/inet.h>
 
 
-#define PORT_NUM 9037
+#define PORT_NUM 3499
 
 int main(){
     int my_sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -32,22 +32,23 @@ int main(){
     printf("connected to the server..\n");
 
     char buf[2048];
+    while(strcmp(buf, "EXIT")) {
         printf("insert command\n");
         fgets(buf, 2048, stdin);
-        size_t ln = strlen(buf)-1;
+        size_t ln = strlen(buf) - 1;
         if (buf[ln] == '\n') {
             buf[ln] = '\0';
         }
-        if(send(my_sock, buf, 2048, 0) == -1){
+        if (send(my_sock, buf, 2048, 0) == -1) {
             printf("sending to the server failed...\n");
             exit(1);
         }
-            if(recv(my_sock, buf, 2048, 0) == -1){
-                printf("receiving from server failed...\n");
-                exit(1);
-            }
-            printf("%s\n", buf);
-
+        if (recv(my_sock, buf, 2048, 0) == -1) {
+            printf("receiving from server failed...\n");
+            exit(1);
+        }
+        printf("%s\n", buf);
+    }
 
     close(my_sock);
 

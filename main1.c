@@ -16,11 +16,12 @@
 #include <pthread.h>
 #include <ctype.h>
 
-#define PORT "3498"
+#define PORT "3499"
 #define BACKLOG 10
 
 // queue node
 typedef struct Queue_node{
+    int fd;
     void* data;
     struct Queue_node* next;
 
@@ -48,11 +49,12 @@ void* createQ(){
     return new_queue;
 }
 
+//struct of arguments to enqueue
 typedef struct _enq_arg{
     queue_point q;
     void* data;
+    int fd;
 }enq_arg, *enq_arg_point;
-
 
 
 void* enQ(void* argument){
@@ -60,8 +62,10 @@ void* enQ(void* argument){
     enq_arg_point arg = enq_arg_point(argument);
     queue_point curr_queue = arg->q;
     char* data = (char*)(arg->data);
+    int fd = arg->fd;
     queue_node_point new_elem = (queue_node_point)(malloc(sizeof(Queue_node)));
     if(new_elem){
+        new_elem->fd = fd;
         new_elem->data = (char*)(malloc(strlen(data)+1));
         if(!new_elem->data){
             free(new_elem);
@@ -73,7 +77,7 @@ void* enQ(void* argument){
                 curr_queue->tail = new_elem;
             }else{
                 curr_queue->tail->next = new_elem;
-                curr_queue->tail = new_elem;
+                curr_queue->tail = curr_queue->tail->next;
             }
             ++curr_queue->capacity;
         }
@@ -85,32 +89,32 @@ void* enQ(void* argument){
 }
 
 void* deQ(void* curr_queue){
-    queue_point q = (queue_point)curr_queue;
     pthread_mutex_lock(&mutex);
+    queue_point q = (queue_point)curr_queue;
+    queue_node_point temp = NULL;
     if(q->capacity == 0) {
         printf("entering cond\n");
         pthread_cond_wait(&cond, &mutex);
         printf("out of cond\n");
     }
     if(q->capacity != 0){
-        queue_node_point temp = q->head;
+        temp = q->head;
         if(q->capacity == 1){
             q->head = NULL;
             q->tail = NULL;
         }else{
             q->head = q->head->next;
         }
-        free(temp->data);
-        free(temp);
         --q->capacity;
     }
     pthread_mutex_unlock(&mutex);
-    return NULL;
+    return temp;
 }
 
 void top(queue_point curr_queue){
     if(curr_queue->capacity != 0){
         printf("%s\n", ((char*)curr_queue->head->data));
+//        printf("%d\n", curr_queue->head->fd);
     }else{
         printf("empty\n");
     }
@@ -133,131 +137,235 @@ void destroyQ(queue_point curr_queue){
 
 typedef struct _active_object{
     queue_point q;
-    void (*func)(struct _active_object* ao);
-    void (*after_func)(struct _active_object* ao);
+    void (*func)(queue_node_point node);
+    void (*after_func)(queue_node_point node);
 }active_object, *active_object_point;
 
 
-active_object_point newAO(queue_point q, void (*func)(struct _active_object* ao), void (*after_func)(struct _active_object* ao)){
-    active_object_point ao = (active_object_point)(malloc(sizeof(active_object)));
-    ao->q = q;
-    ao->func = func;
-    ao->after_func = after_func;
-    return ao;
+void* newAO(queue_point q, void (*func)(queue_node_point node), void (*after_func)(queue_node_point node)){
+
+        queue_node_point node = (queue_node_point)deQ(q);
+        func(node);
+        after_func(node);
+        printf("%s\n", (char*)(node->data));
+
 }
 
 void destroyAO(active_object_point ao){
     clear(ao->q);
 }
 
-void caesar_cipher(active_object_point ao){
-    for(int i = 0; ao->buf[i] != '\0'; ++i){
-        if(ao->buf[i] >= 'a' && ao->buf[i] <= 'z'){
-            ao->buf[i] += 1;
-            if(ao->buf[i] > 'z'){
-                ao->buf[i] = ao->buf[i] - 'z' + 'a' - 1;
+// all the queues
+queue_point q1;
+queue_point q2;
+queue_point q3;
+
+void caesar_cipher(queue_node_point node){
+    char* data = (char*)(node->data);
+    for(int i = 0; data[i] != '\0'; ++i){
+        if(data[i] >= 'a' && data[i] <= 'z'){
+            data[i] += 1;
+            if(data[i] > 'z'){
+                data[i] = data[i] - 'z' + 'a' - 1;
             }
-        }else if(ao->buf[i] >= 'A' && ao->buf[i] <= 'Z'){
-            ao->buf[i] += 1;
-            if(ao->buf[i] > 'Z'){
-                ao->buf[i] = ao->buf[i] - 'Z' + 'A' - 1;
+        }else if(data[i] >= 'A' && data[i] <= 'Z'){
+            data[i] += 1;
+            if(data[i] > 'Z'){
+                data[i] = data[i] - 'Z' + 'A' - 1;
             }
         }
     }
 }
 
-void small_to_big(active_object_point ao){
-    for(int i = 0; ao->buf[i] != '\0'; ++i){
-        if(ao->buf[i] >= 'a' && ao->buf[i] <= 'z'){
-            ao->buf[i] = toupper(ao->buf[i]);
-        }else if(ao->buf[i] >= 'A' && ao->buf[i] <= 'Z'){
-            ao->buf[i] = tolower(ao->buf[i]);
+void small_to_big(queue_node_point node){
+    char* data = (char*)(node->data);
+    for(int i = 0; data[i] != '\0'; ++i){
+        if(data[i] >= 'a' && data[i] <= 'z'){
+            data[i] = toupper(data[i]);
+        }else if(data[i] >= 'A' && data[i] <= 'Z'){
+            data[i] = tolower(data[i]);
         }
     }
 }
 
-void enq_other_queue(active_object_point src, active_object_point dest){
-    char data [4096];
-    strcpy(data, (char*)src->q->head->data);
+void enq_2(queue_node_point head){
     enq_arg_point arg = (enq_arg_point)(malloc(sizeof(enq_arg)));
-    arg->data = data;
-    arg->q = dest->q;
+    arg->data = head->data;
+    arg->q = q2;
+    arg->fd = head->fd;
+    enQ(arg);
+}
+
+void enq_3(queue_node_point head){
+    enq_arg_point arg = (enq_arg_point)(malloc(sizeof(enq_arg)));
+    arg->data = head->data;
+    arg->q = q3;
+    arg->fd = head->fd;
     enQ(arg);
 }
 
 
-
-
-int main(){
-    queue_point q = (queue_point)createQ();
-    char* str = "eylon";
-//    enQ(q, str);
-//    top(q);
-//    deQ(q);
-//    top(q);
-//    str = "naamat";
-//    enQ(q, str);
-//    top(q);
-
-//    pthread_t t1;
-//    pthread_t t2;
-//    pthread_t t3;
-////    pthread_create(&t1, NULL, deQ, (void*)q);
-//
-//    enq_arg_point arg;
-//    arg->data = str;
-//    arg->q = q;
-//
-//    pthread_create(&t1, NULL, deQ, (void*)q);
-//    sleep(2);
-////    top(q);
-//
-//    pthread_create(&t2, NULL, enQ, arg);
-//    sleep(2);
-//    top(q);
-//
-//    pthread_create(&t3, NULL, enQ, arg);
-//    sleep(2);
-//    top(q);
-
-//    char buff[4096];
-//    strcpy(buff, "hello");
-//    strcpy(buff, "world");
-//    printf("%s\n", buff);
-//
-//    active_object_point ao = (active_object_point)(malloc(sizeof(active_object)));
-//    strcpy(ao->buf, "azAZ");
-//    caesar_cipher(ao);
-//    printf("%s\n", ao->buf);
-//    small_to_big(ao);
-//    printf("%s\n", ao->buf);
+void send_to_client(queue_node_point node){
+    char* buf = (char*)node->data;
+    int fd = node->fd;
+    send(fd, buf, strlen(buf), 0);
+}
+void nothing(queue_node_point head){
+    return;
+}
 
 
 
+//server funcs
+void sigchld_handler(int s)
+{
+    // waitpid() might overwrite errno, so we save and restore it:
+    int saved_errno = errno;
 
-    active_object_point ao1 = newAO(q, caesar_cipher, small_to_big);
-    enq_arg_point arg1 = enq_arg_point(malloc(sizeof(enq_arg)));
+    while(waitpid(-1, NULL, WNOHANG) > 0);
 
-    queue_point q2 = (queue_point)createQ();
-    active_object_point ao2 = newAO(q2, caesar_cipher, small_to_big);
-//    enq_arg_point arg2 = enq_arg_point(malloc(sizeof(enq_arg)));
-
-    arg1->q = ao1->q;
-    arg1->data = str;
-    enQ(arg1);
-    top(ao1->q);
-    enq_other_queue(ao1, ao2);
-    top(ao2->q);
-
-//    strcpy(ao1->buf, "azAZ");
-//    printf("%s\n", ao1->buf);
-//    ao1->func(ao1);
-//    printf("%s\n", ao1->buf);
-//    ao1->after_func(ao1);
-//    printf("%s\n", ao1->buf);
+    errno = saved_errno;
+}
 
 
-//    sleep(2);
-//    top(q);
+// get sockaddr, IPv4 or IPv6:
+
+void *get_in_addr(struct sockaddr *sa)
+{
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in*)sa)->sin_addr);
+    }
+
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
+
+
+void* sender(void* arg)
+{
+    int * new_fd = (int*)arg;
+    char buf[2048];
+
+    while(recv(*new_fd, buf, 2048, 0) != -1) {
+        size_t ln = strlen(buf) - 1;
+        if (buf[ln] == '\n') {
+            buf[ln] = '\0';
+        }
+        enq_arg_point arg = enq_arg_point(malloc(sizeof(enq_arg)));;
+        arg->data = buf;
+        arg->q = q1;
+        arg->fd = *new_fd;
+        enQ(arg);
+        newAO(q1, caesar_cipher, enq_2);
+        newAO(q2, small_to_big, enq_3);
+        newAO(q3, send_to_client, nothing);
+    }
+    close((*new_fd));
+
+}
+
+
+int main(void)
+{
+    int sockfd;  // listen on sock_fd, new connection on new_fd
+    struct addrinfo hints, *servinfo, *p;
+    struct sockaddr_storage their_addr; // connector's address information
+    socklen_t sin_size;
+    struct sigaction sa;
+    int yes=1;
+    char s[INET6_ADDRSTRLEN];
+    int rv;
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE; // use my IP
+
+    if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        return 1;
+    }
+
+    // loop through all the results and bind to the first we can
+    for(p = servinfo; p != NULL; p = p->ai_next) {
+        if ((sockfd = socket(p->ai_family, p->ai_socktype,
+                             p->ai_protocol)) == -1) {
+            perror("server: socket");
+            continue;
+        }
+
+        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes,
+                       sizeof(int)) == -1) {
+            perror("setsockopt");
+            exit(1);
+        }
+
+        if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+            close(sockfd);
+            perror("server: bind");
+            continue;
+        }
+
+        break;
+    }
+
+    freeaddrinfo(servinfo); // all done with this structure
+
+    if (p == NULL)  {
+        fprintf(stderr, "server: failed to bind\n");
+        exit(1);
+    }
+
+    if (listen(sockfd, BACKLOG) == -1) {
+        perror("listen");
+        exit(1);
+    }
+
+    sa.sa_handler = sigchld_handler; // reap all dead processes
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        perror("sigaction");
+        exit(1);
+    }
+
+    printf("server: waiting for connections...\n");
+
+    int i = 0;
+    pthread_t thread_id[10];
+
+
+
+    q1 = (queue_point)createQ();
+    q2 = (queue_point)createQ();
+    q3 = (queue_point)createQ();
+
+    pthread_mutex_init(&mutex, NULL);
+
+    while(1) {  // main accept() loop
+        sin_size = sizeof their_addr;
+        new_fd[i] = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
+        if (new_fd[i] == -1) {
+            perror("accept");
+            continue;
+        }
+
+        inet_ntop(their_addr.ss_family,
+                  get_in_addr((struct sockaddr *)&their_addr),
+                  s, sizeof s);
+        printf("server: got connection from %s\n", s);
+
+        if(pthread_create(&thread_id[i], NULL, sender, (&new_fd[i])) != 0){
+            printf("thread creation failed\n");
+        }
+        i++;
+        if(i >= 5){
+            for(int j=0;j<=i;j++)
+            {
+                pthread_join(thread_id[j], NULL);
+            }
+            i = 0;
+        }
+    }
     return 0;
 }
+

@@ -10,6 +10,12 @@ main1.o: main1.c
 main1: main1.o
 	g++ main1.o -o main1 -pthread
 
+client.o: client.cpp
+	g++ -c client.cpp
+
+client: client.o
+	g++ client.o -o client
+
 reactor.o: reactor.cpp
 	g++ -c reactor.cpp
 
@@ -22,9 +28,9 @@ singleton.o: singleton.cpp
 singleton: singleton.o
 	g++ singleton.o -o singleton
 
-all: guard singleton reactor main1
+all: guard singleton reactor main1 client
 
 .PHONY: clean
 
 clean:
-	rm *.o guard singleton reactor main1
+	rm *.o guard singleton reactor main1 client
