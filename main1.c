@@ -16,7 +16,7 @@
 #include <pthread.h>
 #include <ctype.h>
 
-#define PORT "3499"
+#define PORT "3503"
 #define BACKLOG 10
 
 // queue node
@@ -83,7 +83,6 @@ void* enQ(void* argument){
         }
     }
     pthread_cond_signal(&cond);
-    printf("release from cond\n");
     pthread_mutex_unlock(&mutex);
     return NULL;
 }
@@ -123,7 +122,9 @@ void top(queue_point curr_queue){
 
 void clear(queue_point curr_queue){
     while(curr_queue->capacity){
-        deQ(curr_queue);
+        queue_node_point temp = (queue_node_point)deQ(curr_queue);
+        free(temp->data);
+        free(temp);
     }
 }
 
@@ -143,13 +144,12 @@ typedef struct _active_object{
 
 
 void* newAO(queue_point q, void (*func)(queue_node_point node), void (*after_func)(queue_node_point node)){
-
-        queue_node_point node = (queue_node_point)deQ(q);
-        func(node);
-        after_func(node);
-        printf("%s\n", (char*)(node->data));
-
+    queue_node_point node = (queue_node_point)deQ(q);
+    func(node);
+    after_func(node);
+//    printf("%s\n", (char*)(node->data));
 }
+
 
 void destroyAO(active_object_point ao){
     clear(ao->q);
@@ -255,6 +255,8 @@ void* sender(void* arg)
         arg->q = q1;
         arg->fd = *new_fd;
         enQ(arg);
+
+
         newAO(q1, caesar_cipher, enq_2);
         newAO(q2, small_to_big, enq_3);
         newAO(q3, send_to_client, nothing);

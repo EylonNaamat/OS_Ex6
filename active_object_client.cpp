@@ -1,5 +1,5 @@
 //
-// Created by eylon on 5/31/22.
+// Created by eylon on 6/3/22.
 //
 #include <sys/socket.h>
 #include <stdio.h>
@@ -10,7 +10,7 @@
 #include <arpa/inet.h>
 
 
-#define PORT_NUM 3499
+#define PORT_NUM 3502
 
 int main(){
     int my_sock = socket(AF_INET, SOCK_STREAM, 0);

@@ -1,53 +1,51 @@
 //
 // Created by eylon on 5/30/22.
 //
-#include <assert.h>
-#include <stdio.h>
 #include <iostream>
+#include <stdio.h>
+#include <assert.h>
 
 template <typename T> class Singleton{
 private:
-    static T* instance;
-    Singleton(){}
-    ~Singleton(){}
+    T data;
+    static Singleton<T>* instance;
+    Singleton<T>(T data){
+        this->data = data;
+    }
+    ~Singleton<T>(){}
 public:
-    static T* Instance();
-    static void destroy();
+    static Singleton<T>* Instance(T data);
+    static void Destroy();
 };
 
 template <typename T>
-T* Singleton<T>::instance = 0;
+Singleton<T>* Singleton<T>::instance = 0;
 
-template <typename T>
-T* Singleton<T>::Instance() {
-    if(!instance){
-        instance = new T();
+template<typename T>
+Singleton<T>* Singleton<T>::Instance(T data) {
+    if(instance == nullptr){
+        instance = new Singleton<T>(data);
     }
     return instance;
 }
 
 template <typename T>
-void Singleton<T>::destroy(){
+void Singleton<T>::Destroy(){
     if(instance){
         instance = 0;
     }
 }
 
-
 int main(){
-    FILE** sing1 = Singleton<FILE*>::Instance();
-    FILE** sing2 = Singleton<FILE*>::Instance();
-    assert(sing1 == sing2);
-    std::cout << sing1 << '\n';
-    std::cout << sing2 << '\n';
-
-    Singleton<FILE*>::destroy();
-
-    FILE** sing3 = Singleton<FILE*>::Instance();
-    assert(sing3 != sing1);
-    assert(sing3 != sing2);
-    std::cout << sing3 << '\n';
-
-
-    return 0;
+    FILE* file;
+    Singleton<FILE*>* s1 = Singleton<FILE*>::Instance(file);
+    Singleton<FILE*>* s2 = Singleton<FILE*>::Instance(file);
+    std::cout << s1 << '\n';
+    std::cout << s2 << '\n';
+    assert(s1 == s2);
+    Singleton<FILE*>::Destroy();
+    Singleton<FILE*>* s3 = Singleton<FILE*>::Instance(file);
+    std::cout << s3 << '\n';
+    assert(s1 != s3);
+    assert(s2 != s3);
 }

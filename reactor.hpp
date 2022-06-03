@@ -29,9 +29,8 @@ public:
         this->size = 10;
     }
     ~Reactor(){}
-    void* newReactor();
-    bool InstallHandler(Reactor* reactor, void* (*func)(void*), int fd);
-    void RemoveHandler(Reactor* reactor, int i);
+
+
 };
 
 typedef struct _arguments{
@@ -41,11 +40,17 @@ typedef struct _arguments{
 
 }arguments;
 
+void* newReactor(Reactor* reactor);
+void* InstallHandler(void* argu);
+void RemoveHandler(Reactor* reactor, int i);
+
 
 void* recv_send(void* argument);
 void* listener_func(void* argument);
 
 void *get_in_addr(struct sockaddr *sa);
 int get_listener_socket(void);
+
+
 
 

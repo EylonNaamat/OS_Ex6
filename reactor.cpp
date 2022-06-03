@@ -1,88 +1,83 @@
 //
 // Created by eylon on 5/30/22.
 //
-//#include <poll.h>
-//#include <unistd.h>
-//#include <string>
-//#include <string.h>
-//#include <pthread.h>
-//#include <sys/socket.h>
-//#include <netinet/in.h>
-//#include <arpa/inet.h>
-//#include <netdb.h>
-//#include <stdio.h>
+
 #include "reactor.hpp"
-#define PORT "9037"
+#define PORT "9027"
 
-//typedef int (*fd_funcs) (int fd, void* buf, size_t len, int flags);
-//typedef void* (*fd_funcs) (void* argument);
-//void* recv_send(void* argument);
+//global
+pthread_t t1;
+pthread_t t2;
+pthread_t t3;
+
+typedef struct _install_arg{
+    Reactor* reactor;
+    void* (*func)(void* argument);
+    int fd;
+}install_arg, *install_arg_point;
 
 
-
-
-//class Reactor{
-//public:
-//    struct pollfd* fds;
-//    fd_funcs* funcs;
-//    int count;
-//    int size;
-//    pthread_t thread_id;
-//public:
-//    Reactor(){
-//        this->fds = (struct pollfd*)(malloc(sizeof(struct pollfd) * 10));
-//        this->funcs = (fd_funcs *)(malloc(sizeof(fd_funcs) * 10));
-//        this->count = 0;
-//        this->size = 10;
-//    }
-//    ~Reactor(){}
-//    void* newReactor();
-//    bool InstallHandler(Reactor* reactor, void* (*func)(void*), int fd);
-//    void RemoveHandler(Reactor* reactor, int i);
-//};
-
-bool Reactor::InstallHandler(Reactor *reactor, void* (*func)(void*), int fd) {
-    if(reactor->count == reactor->size){
-        reactor->size *= 2;
-        reactor->fds = (struct pollfd*)(realloc(reactor->fds, (sizeof(struct pollfd) * reactor->size)));
-        if(reactor->fds == NULL){
-            return false;
+void* InstallHandler(void* argu) {
+    install_arg_point arg = (install_arg_point)(argu);
+    if(arg->reactor->count == arg->reactor->size){
+        arg->reactor->size *= 2;
+        arg->reactor->fds = (struct pollfd*)(realloc(arg->reactor->fds, (sizeof(struct pollfd) * arg->reactor->size)));
+        if(arg->reactor->fds == NULL){
+//            return false;
         }
-        reactor->funcs = (fd_funcs*)(realloc(reactor->funcs, (sizeof(fd_funcs) * reactor->size)));
-        if(reactor->funcs == NULL){
-            return false;
+        arg->reactor->funcs = (fd_funcs*)(realloc(arg->reactor->funcs, (sizeof(fd_funcs) * arg->reactor->size)));
+        if(arg->reactor->funcs == NULL){
+//            return false;
         }
     }
-    reactor->fds[reactor->count].fd = fd;
-    reactor->fds[reactor->count].events = POLLIN;
-    reactor->funcs[reactor->count] = (fd_funcs)(func);
-    reactor->count++;
-    return true;
+    arg->reactor->fds[arg->reactor->count].fd = arg->fd;
+    arg->reactor->fds[arg->reactor->count].events = POLLIN;
+    arg->reactor->funcs[arg->reactor->count] = (arg->func);
+    arg->reactor->count++;
+//    return true;
 }
 
-void Reactor::RemoveHandler(Reactor *reactor, int i) {
+void install_helper(Reactor *reactor, void* (*func)(void* argument), int fd){
+    install_arg_point argu = (install_arg_point)(malloc(sizeof(install_arg)));
+    argu->reactor = reactor;
+    argu->func = func;
+    argu->fd = fd;
+    pthread_create(&t2, NULL, InstallHandler, (void*)(argu));
+    pthread_join(t2, NULL);
+}
+
+void RemoveHandler(Reactor *reactor, int i) {
     reactor->fds[i] = reactor->fds[reactor->count-1];
     reactor->count--;
 }
 
-
-void *Reactor::newReactor() {
+void* newreactor_help(void* newarg){
+    Reactor* reactor = (Reactor*)(newarg);
     while(1){
-        int poll_stat = poll(this->fds, this->count, -1);
+        int poll_stat = poll(reactor->fds, reactor->count, -1);
         if(poll_stat == -1){
             printf("error\n");
         }
-        for(int i = 0; i < this->count; ++i){
-            if(this->fds[i].revents & POLLIN){
+        for(int i = 0; i < reactor->count; ++i){
+            if(reactor->fds[i].revents & POLLIN){
                 arguments arg;
-                arg.react = this;
-                arg.fd = this->fds[i];
+                arg.react = reactor;
+                arg.fd = reactor->fds[i];
                 arg.i = i;
-                pthread_create(&this->thread_id, NULL, this->funcs[i], &arg);
+                reactor->funcs[i]((void*)&arg);
             }
         }
     }
+
 }
+
+
+void *newReactor(Reactor* reactor) {
+    pthread_create(&t1, NULL, newreactor_help, (void*)reactor);
+    pthread_join(t1, NULL);
+}
+
+
 
 
 
@@ -147,6 +142,8 @@ int get_listener_socket(void)
     return listener;
 }
 
+//global
+int listener;
 
 //my funcs
 void* recv_send(void* argument){
@@ -168,17 +165,17 @@ void* recv_send(void* argument){
 
         close(arg->fd.fd); // Bye!
 
-        arg->react->RemoveHandler(arg->react, arg->i);
+        RemoveHandler(arg->react, arg->i);
 
     } else {
         // We got some good data from a client
 
-        for(int j = 1; j < arg->react->count; j++) {
+        for(int j = 0; j < arg->react->count; j++) {
             // Send to everyone!
             int dest_fd = arg->react->fds[j].fd;
 
             // Except the listener and ourselves
-            if (dest_fd != sender_fd) {
+            if (dest_fd != sender_fd && dest_fd != listener) {
                 if (send(dest_fd, buf, nbytes, 0) == -1) {
                     perror("send");
                 }
@@ -186,6 +183,7 @@ void* recv_send(void* argument){
         }
     }
 }
+
 
 void* listener_func(void* argument){
     int newfd;
@@ -204,7 +202,7 @@ void* listener_func(void* argument){
     if (newfd == -1) {
         perror("accept");
     } else {
-        arg->react->InstallHandler(arg->react, &recv_send, newfd);
+        install_helper(arg->react, &recv_send, newfd);
         printf("pollserver: new connection from %s on "
                "socket %d\n",
                inet_ntop(remoteaddr.ss_family,
@@ -215,8 +213,24 @@ void* listener_func(void* argument){
 }
 
 
-int main(){
-    Reactor reactor = new Reactor();
+int main(void)
+{
+    Reactor* reactor = new Reactor();
 
-    reactor.InstallHandler();
+
+    // Set up and get a listening socket
+    listener = get_listener_socket();
+
+    if (listener == -1) {
+        fprintf(stderr, "error getting listening socket\n");
+        exit(1);
+    }
+
+
+
+    install_helper(reactor, listener_func, listener);
+    newReactor(reactor);
+
+
+    return 0;
 }
